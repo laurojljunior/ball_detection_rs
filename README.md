@@ -2,13 +2,12 @@
 
 ## Install
 
-Install Python 3.6 for Windows:
+Install Python 3.6 for Windows: https://www.python.org/ftp/python/3.6.8/python-3.6.8-amd64.exe
 
 ### On Windows:
 Create a virtualenv to hold all the Python dependency packages.
 
     python -m venv .venv
-
 
 Install the Python dependencies using the following commands:
 
