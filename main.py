@@ -43,8 +43,13 @@ def euclideanDistance(p1, p2):
     dis = ((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) ** 0.5
     return dis
 
-def isEnteringGoal(point_list, img):
-    if math.fabs(point_list[-1][0][1] - img.shape[0]) < 32:
+def isEnteringGoal(point_list, img, warp_offset):
+
+    first_speed = euclideanDistance(point_list[0][0], point_list[1][0]) / 1.0
+    if first_speed < 15.0:
+        return False
+
+    if point_list[-1][0][1] - (img.shape[0] - warp_offset) > (0.2 * warp_offset) or point_list[-1][0][1] - warp_offset < (0.2 * warp_offset):
         return False
 
     x = np.array(list(range(1, len(point_list)+1)))
@@ -103,14 +108,7 @@ try:
     
     # Configure the pipeline to stream the depth stream
     # Change this parameters according to the recorded bag file resolution
-    config.enable_stream(rs.stream.color, rs.format.rgb8, 30)
-    config.enable_stream(rs.stream.depth, rs.format.z16, 30)
-    config.enable_stream(rs.stream.infrared, rs.format.y8, 30);     
-
-    depth_to_disparity =  rs.disparity_transform(True)
-    disparity_to_depth = rs.disparity_transform(False)
-    dec_filter = rs.decimation_filter()
-    temp_filter = rs.temporal_filter()
+    config.enable_stream(rs.stream.color, rs.format.rgb8, 30)    
 
     # Tell config that we will use a recorded device from file to be used by the pipeline through playback.
     if args.input:
@@ -150,38 +148,18 @@ try:
     # Streaming loop
     start_time = time.time();
     while True:
-        #processing_time_start = time.time()
-        # Get frameset of depth
         frames = pipeline.wait_for_frames()
-        aligned_frames = align.process(frames)
 
-        # Get depth frame
-        depth_frame = aligned_frames.get_depth_frame()
-        depth_frame = depth_to_disparity.process(depth_frame)
-        depth_frame = dec_filter.process(depth_frame)
-        depth_frame = temp_filter.process(depth_frame)
-        depth_frame = disparity_to_depth.process(depth_frame)
-        depth_frame = depth_frame.as_depth_frame()
-
-        color_frame = aligned_frames.get_color_frame()
-		
-        depth_image = np.asanyarray(depth_frame.get_data())
+        color_frame = frames.get_color_frame()
         color_image = np.asanyarray(color_frame.get_data())
 
-        depth_image_8u = cv2.convertScaleAbs(depth_image, alpha=255.0/6000.0, beta=0)
-
         warp_color_image = warp(color_image, M, (warp_width, warp_height))
-        warp_depth_image = warp(depth_image, M, (warp_width, warp_height))
-        warp_depth_image = cv2.GaussianBlur(warp_depth_image, (5, 5), 0);
-        warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
-
+        
         kernel = np.ones((5, 5), np.uint8)
         color_mask = backSubColor.apply(warp_color_image)
         _, color_mask = cv2.threshold(color_mask, 200, 255, cv2.THRESH_BINARY);
         color_mask = cv2.erode(color_mask, kernel, anchor=(2, 2))
         color_mask = cv2.dilate(color_mask, kernel, anchor=(2, 2), iterations=2)
-
-        #cv2.imshow("color_mask", color_mask)
 
         foreground_mask = color_mask
         
@@ -204,9 +182,10 @@ try:
                     if ball_previous_pose is not None:
                         ball_speed = euclideanDistance(ball_previous_pose[0], ball_current_pose[0]) / 1.0
                         
+                        #print(ball_speed)
                         if len(ball_tracking_list) >=3 and ball_speed < 10.0:
                             #print(ball_tracking_list)
-                            is_entering_goal = isEnteringGoal(ball_tracking_list, warp_color_image)
+                            is_entering_goal = isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset)
                             ball_tracking_list.clear()
 
                             if is_entering_goal:
