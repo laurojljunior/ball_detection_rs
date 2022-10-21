@@ -50,7 +50,7 @@ def isEnteringGoal(point_list, img, warp_offset):
     if first_speed <= 10.0:
         return False
 
-    if point_list[-1][0][1] - (img.shape[0] - warp_offset) > (0.2 * warp_offset) or point_list[-1][0][1] - warp_offset < (0.2 * warp_offset):
+    if point_list[-1][0][1] - (img.shape[0] - warp_offset) > (0.2 * warp_offset):
         #print("eita")
         return False
 
@@ -64,8 +64,8 @@ def isEnteringGoal(point_list, img, warp_offset):
 	
     a, b = np.polyfit(x, y, 1)
 
-    print(a)
-    if a <= 0:
+    #print(a)
+    if a <= 3:
         return True
     
     return False
@@ -130,7 +130,6 @@ try:
     align = rs.align(align_to)
 
     backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=int(config_args["Params"]["BgsSensibility"]), detectShadows=True)
-    backSubIR = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=int(config_args["Params"]["BgsSensibility"]), detectShadows=False)
     
     projection_points = ast.literal_eval(config_args["Params"]["ProjectionPoints"])
     warp_offset = int(config_args["Params"]["WarpOffset"])
@@ -147,9 +146,6 @@ try:
     count_frames = 0
     show_time = 0
     send_data = False
-    clear_memory = 0
-
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8,8))
 
     # Streaming loop
     start_time = time.time();
@@ -161,11 +157,7 @@ try:
         color_image = np.asanyarray(color_frame.get_data())
         warp_color_image = warp(color_image, M, (warp_width, warp_height))
 
-        infrared_frame = aligned_frames.get_infrared_frame()
-        ir_image = np.asanyarray(infrared_frame.get_data())
-        ir_image  = cv2.resize(ir_image, (color_image.shape[1], color_image.shape[0]))
-        warp_ir_image = warp(ir_image, M, (warp_width, warp_height))
-        warp_ir_image = clahe.apply(warp_ir_image)
+        warp_color_image = cv2.addWeighted( warp_color_image, 1.1, warp_color_image, 0, 0)
         
         kernel = np.ones((5, 5), np.uint8)
         color_mask = backSubColor.apply(warp_color_image)
@@ -173,7 +165,12 @@ try:
         color_mask = cv2.erode(color_mask, kernel, anchor=(2, 2))
         color_mask = cv2.dilate(color_mask, kernel, anchor=(2, 2), iterations=2)
 
-        foreground_mask = color_mask
+        goal_mask = np.zeros(color_mask.shape, np.uint8)
+        cv2.rectangle(goal_mask, (warp_offset, warp_offset+20, goal_mask.shape[1]-2*warp_offset, goal_mask.shape[1]-warp_offset-20), (255), cv2.FILLED)
+
+        #cv2.imshow("goal_mask", goal_mask)
+
+        foreground_mask = color_mask & goal_mask
         
         if count_frames > 30:
             contours, hierarchy = cv2.findContours(foreground_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -193,16 +190,16 @@ try:
                     if ball_previous_pose is not None:
                         ball_speed = euclideanDistance(ball_previous_pose[0], ball_current_pose[0]) / 1.0
                         
-                        print("vel: " + str(ball_speed))
-                        print("size: " + str(len(ball_tracking_list)))
-                        if len(ball_tracking_list) >=3 and ball_speed < 25.0:
-                            print(ball_tracking_list)
+                        #print("vel: " + str(ball_speed))
+                        #print("size: " + str(len(ball_tracking_list)))
+                        if len(ball_tracking_list) >=3 and ball_speed < 10.0:
                             is_entering_goal = isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset)
                             ball_tracking_list.clear()
 
                             if is_entering_goal:
                                 send_data = True
                                 ball_goal_pose = ball_current_pose
+
 
                         else:
                             ball_tracking_list.append(ball_current_pose)
@@ -213,14 +210,20 @@ try:
 
 
                     ball_previous_pose = ball_current_pose
-                    clear_memory = 0
 
             else:
-                clear_memory += 1
-                print("mem: " + str(clear_memory))
-                if clear_memory >= 3:
-                    print("clear")
-                    clear_memory = 0
+                if len(ball_tracking_list) >=3:
+                    #print(ball_tracking_list)
+                    is_entering_goal = isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset)
+                    if is_entering_goal:
+                        send_data = True
+                        #print("speed: " + str(ball_speed))
+                        ball_goal_pos = (ball_tracking_list[-1][0][0] + (ball_tracking_list[-1][0][0] - ball_tracking_list[-2][0][0]), ball_tracking_list[-1][0][1] + (ball_tracking_list[-1][0][1] - ball_tracking_list[-2][0][1]))
+                        ball_goal_rad = ball_tracking_list[-1][1]
+                        ball_goal_pose = (ball_goal_pos, ball_goal_rad)
+
+                    ball_tracking_list.clear()
+                else:
                     ball_previous_pose = None
                     ball_tracking_list.clear()
 
@@ -248,7 +251,6 @@ try:
             #cv2.imshow("Depth 8Bit", depth_image_8u) 
             #cv2.imshow("Color Stream", color_image)
             cv2.imshow("Warp Color",  warp_color_image)
-            #cv2.imshow("Warp IR", warp_ir_image)
             #cv2.imshow("Foreground Mask", foreground_mask)
             key = cv2.waitKey(1)
             #processing_time_end = time.time()
