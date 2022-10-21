@@ -64,6 +64,7 @@ def isEnteringGoal(point_list, img, warp_offset):
 	
     a, b = np.polyfit(x, y, 1)
 
+    print(a)
     if a <= 0:
         return True
     
@@ -111,6 +112,7 @@ try:
     # Configure the pipeline to stream the depth stream
     # Change this parameters according to the recorded bag file resolution
     config.enable_stream(rs.stream.color, rs.format.rgb8, 30)    
+    config.enable_stream(rs.stream.infrared, rs.format.y8, 30);    
 
     # Tell config that we will use a recorded device from file to be used by the pipeline through playback.
     if args.input:
@@ -128,6 +130,7 @@ try:
     align = rs.align(align_to)
 
     backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=int(config_args["Params"]["BgsSensibility"]), detectShadows=True)
+    backSubIR = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=int(config_args["Params"]["BgsSensibility"]), detectShadows=False)
     
     projection_points = ast.literal_eval(config_args["Params"]["ProjectionPoints"])
     warp_offset = int(config_args["Params"]["WarpOffset"])
@@ -144,18 +147,25 @@ try:
     count_frames = 0
     show_time = 0
     send_data = False
+    clear_memory = 0
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8,8))
 
     # Streaming loop
     start_time = time.time();
     while True:
         frames = pipeline.wait_for_frames()
+        aligned_frames = align.process(frames)
 
-        color_frame = frames.get_color_frame()
+        color_frame = aligned_frames.get_color_frame()
         color_image = np.asanyarray(color_frame.get_data())
-
         warp_color_image = warp(color_image, M, (warp_width, warp_height))
+
+        infrared_frame = aligned_frames.get_infrared_frame()
+        ir_image = np.asanyarray(infrared_frame.get_data())
+        ir_image  = cv2.resize(ir_image, (color_image.shape[1], color_image.shape[0]))
+        warp_ir_image = warp(ir_image, M, (warp_width, warp_height))
+        warp_ir_image = clahe.apply(warp_ir_image)
         
         kernel = np.ones((5, 5), np.uint8)
         color_mask = backSubColor.apply(warp_color_image)
@@ -178,15 +188,15 @@ try:
 
                 if c_area > (6.4 * 6.4) and c_area < (48 * 48):
                     c_circle = cv2.minEnclosingCircle(c)
-                    #isOnGoal = checkBallIsOnGoal(ccircle, warp_depth_image, int(config_args["Params"]["BallIsOnGoalSensibility"]))
                     ball_current_pose = c_circle
 
                     if ball_previous_pose is not None:
                         ball_speed = euclideanDistance(ball_previous_pose[0], ball_current_pose[0]) / 1.0
                         
-                        #print("vel: " + str(ball_speed))
-                        if len(ball_tracking_list) >=3 and ball_speed < 10.0:
-                            #print(ball_tracking_list)
+                        print("vel: " + str(ball_speed))
+                        print("size: " + str(len(ball_tracking_list)))
+                        if len(ball_tracking_list) >=3 and ball_speed < 25.0:
+                            print(ball_tracking_list)
                             is_entering_goal = isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset)
                             ball_tracking_list.clear()
 
@@ -198,13 +208,21 @@ try:
                             ball_tracking_list.append(ball_current_pose)
 
                         if ball_speed < 10.0:
+                            ball_previous_pose = None
                             ball_tracking_list.clear()
 
 
                     ball_previous_pose = ball_current_pose
+                    clear_memory = 0
 
             else:
-                ball_tracking_list.clear()
+                clear_memory += 1
+                print("mem: " + str(clear_memory))
+                if clear_memory >= 3:
+                    print("clear")
+                    clear_memory = 0
+                    ball_previous_pose = None
+                    ball_tracking_list.clear()
 
             if is_entering_goal:
                 scale_x = warp_color_image.shape[1] / (warp_color_image.shape[1] - 2 * warp_offset)
@@ -230,7 +248,7 @@ try:
             #cv2.imshow("Depth 8Bit", depth_image_8u) 
             #cv2.imshow("Color Stream", color_image)
             cv2.imshow("Warp Color",  warp_color_image)
-            #cv2.imshow("Warp Depth", warp_depth_image_8u)
+            #cv2.imshow("Warp IR", warp_ir_image)
             #cv2.imshow("Foreground Mask", foreground_mask)
             key = cv2.waitKey(1)
             #processing_time_end = time.time()
