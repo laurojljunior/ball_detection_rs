@@ -46,10 +46,12 @@ def euclideanDistance(p1, p2):
 def isEnteringGoal(point_list, img, warp_offset):
 
     first_speed = euclideanDistance(point_list[0][0], point_list[1][0]) / 1.0
-    if first_speed < 15.0:
+    #print(first_speed)
+    if first_speed <= 10.0:
         return False
 
     if point_list[-1][0][1] - (img.shape[0] - warp_offset) > (0.2 * warp_offset) or point_list[-1][0][1] - warp_offset < (0.2 * warp_offset):
+        #print("eita")
         return False
 
     x = np.array(list(range(1, len(point_list)+1)))
@@ -125,7 +127,7 @@ try:
     align_to = rs.stream.color
     align = rs.align(align_to)
 
-    backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=2000.0, detectShadows=True)
+    backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=1000.0, detectShadows=True)
     
     projection_points = ast.literal_eval(config_args["Params"]["ProjectionPoints"])
     warp_offset = int(config_args["Params"]["WarpOffset"])
@@ -182,7 +184,7 @@ try:
                     if ball_previous_pose is not None:
                         ball_speed = euclideanDistance(ball_previous_pose[0], ball_current_pose[0]) / 1.0
                         
-                        #print(ball_speed)
+                        #print("vel: " + str(ball_speed))
                         if len(ball_tracking_list) >=3 and ball_speed < 10.0:
                             #print(ball_tracking_list)
                             is_entering_goal = isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset)
