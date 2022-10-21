@@ -231,7 +231,7 @@ try:
             #cv2.imshow("Color Stream", color_image)
             cv2.imshow("Warp Color",  warp_color_image)
             #cv2.imshow("Warp Depth", warp_depth_image_8u)
-            cv2.imshow("Foreground Mask", foreground_mask)
+            #cv2.imshow("Foreground Mask", foreground_mask)
             key = cv2.waitKey(1)
             #processing_time_end = time.time()
             #print("Processing Time: " + str(processing_time_end-processing_time_start))
