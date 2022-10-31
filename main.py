@@ -8,6 +8,9 @@ import cv2
 # Import argparse for command-line options
 import argparse
 import configparser
+import projection
+import util
+import vision
 
 import math
 import time
@@ -17,108 +20,13 @@ from udp import UdpServer
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 
-def read_config(file):
-	config = configparser.ConfigParser()
-	config.read(file)
+depth_to_disparity =  rs.disparity_transform(True)
+disparity_to_depth = rs.disparity_transform(False)
+dec_filter = rs.decimation_filter()
+temp_filter = rs.temporal_filter()
+hole_filter = rs.hole_filling_filter()
 
-	return config
-
-def get_warp_transform(input, warp_size, offset):
-	warp_width = warp_size[0]
-	warp_height = warp_size[1]
-	
-	input_pts = np.float32(input)
-	output_pts = np.float32([[offset,offset], [warp_width-offset, offset], [warp_width-offset,warp_height-offset], [offset,warp_height-offset]])
-	
-	M = cv2.getPerspectiveTransform(input_pts, output_pts)
-
-	return M
-
-def warp(frame, M, warp_size):
-	out = cv2.warpPerspective(frame, M, (warp_size[0], warp_size[1]), flags=cv2.INTER_LINEAR)
-
-	return out
-
-def euclideanDistance(p1, p2):
-    dis = ((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) ** 0.5
-    return dis
-
-def isEnteringGoal(point_list, img, warp_offset):
-
-    first_speed = euclideanDistance(point_list[0][0], point_list[1][0]) / 1.0
-    #print(first_speed)
-    if first_speed <= 10.0:
-        return False
-
-    if point_list[-1][0][1] - (img.shape[0] - warp_offset) > (0.2 * warp_offset):
-        #print("eita")
-        return False
-
-    x = np.array(list(range(1, len(point_list)+1)))
-
-    list_y = []
-    for p in point_list:
-        list_y.append(p[0][1])
-
-    y = np.array(list_y)
-	
-    a, b = np.polyfit(x, y, 1)
-
-    travel_dist = euclideanDistance(point_list[0][0], point_list[-1][0])
-
-    # print("a: " + str(a))
-    # print("travel: " + str(travel_dist))
-    if a <= 3 and travel_dist >= 30.0:
-        return True
-    
-    return False
-
-def contourCloserToPose(contours, pose):
-    minDist = 9999
-    minIdx = 0
-    for i, c in enumerate(contours):
-        c_circle = cv2.minEnclosingCircle(c)
-        dist = euclideanDistance(c_circle[0], pose[0])
-        if dist < minDist:
-            minDist = dist
-            minIdx = i
-
-    return contours[minIdx]
-
-		
-def refineBallPosition(pos, mask, radius):
-    ball_mask = np.zeros(mask.shape, np.uint8) 
-    cv2.circle(ball_mask, (int(pos[0]), int(pos[1])), radius, (255), cv2.FILLED)
-
-    kernel = np.ones((5, 5), np.uint8)
-    ball_mask = ball_mask & mask;
-
-    ball_mask = cv2.dilate(ball_mask, kernel, anchor=(2, 2))
-    ball_mask = cv2.erode(ball_mask, kernel, anchor=(2, 2))
-
-    contours, hierarchy = cv2.findContours(ball_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-
-    if len(contours) > 0:            
-        c = max(contours, key = cv2.contourArea)
-        ccircle = cv2.minEnclosingCircle(c)
-    
-        return ccircle[0], ccircle[1]
-
-    return None, None
-
-# Create object for parsing command-line options
-parser = argparse.ArgumentParser(description="Ball Detection using Realsense D455")
-# Add argument which takes path to a bag file as an input
-parser.add_argument("-i", "--input", type=str, help="Path to the bag file", required=False)
-parser.add_argument("-c", "--config", type=str, help="Path to the config file", required=True)
-parser.add_argument("-d", "--debug", type=bool, help="Debug Flag", required=False)
-# Parse the command line arguments to an object
-args = parser.parse_args()
-config_args = read_config(args.config)
-
-try:
-    udp_server = UdpServer(UDP_IP, UDP_PORT)
-
+def configure_realsense_pipeline(input_file):
     # Create pipeline
     pipeline = rs.pipeline()
 
@@ -131,15 +39,9 @@ try:
     config.enable_stream(rs.stream.depth, rs.format.z16, 30)
     config.enable_stream(rs.stream.infrared, rs.format.y8, 30);
 
-    depth_to_disparity =  rs.disparity_transform(True)
-    disparity_to_depth = rs.disparity_transform(False)
-    dec_filter = rs.decimation_filter()
-    temp_filter = rs.temporal_filter()
-    hole_filter = rs.hole_filling_filter()
-
     # Tell config that we will use a recorded device from file to be used by the pipeline through playback.
     if args.input:
-        rs.config.enable_device_from_file(config, args.input)
+        rs.config.enable_device_from_file(config, input_file, repeat_playback=False)
         profile = pipeline.start(config)
         playback = profile.get_device().as_playback()
         playback.set_real_time(False)
@@ -147,20 +49,43 @@ try:
         profile = pipeline.start(config)
         device = profile.get_device()
         depth_sensor = device.query_sensors()[0]
-        depth_sensor.set_option(rs.option.laser_power, 360)   
+        depth_sensor.set_option(rs.option.laser_power, 360) 
 
     align_to = rs.stream.color
     align = rs.align(align_to)
 
-    backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=int(config_args["Params"]["BgsSensibility"]), detectShadows=True)
-    #backSubDepth = cv2.createBackgroundSubtractorKNN(dist2Threshold=150.0, detectShadows=False)
-    backSubIR = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=int(config_args["Params"]["BgsSensibility"]), detectShadows=False)
+    return pipeline, profile, align
 
-    projection_points = ast.literal_eval(config_args["Params"]["ProjectionPoints"])
-    warp_offset = int(config_args["Params"]["WarpOffset"])
-    warp_width = int(config_args["Params"]["WarpWidth"])
-    warp_height = int(config_args["Params"]["WarpHeight"])
-    M = get_warp_transform(projection_points, (warp_width, warp_height), warp_offset)
+def read_args():
+    # Create object for parsing command-line options
+    parser = argparse.ArgumentParser(description="Ball Detection using Realsense D455")
+    # Add argument which takes path to a bag file as an input
+    parser.add_argument("-i", "--input", type=str, help="Path to the bag file", required=False)
+    parser.add_argument("-c", "--config", type=str, help="Path to the config file", required=True)
+    parser.add_argument("-d", "--debug", type=bool, help="Debug Flag", required=False)
+    # Parse the command line arguments to an object
+    args = parser.parse_args()
+    return args
+
+def read_config(file):
+	config = configparser.ConfigParser()
+	config.read(file)
+	return config
+
+def main(args, config_args):
+    udp_server = UdpServer(UDP_IP, UDP_PORT)
+    pipeline, profile, align = configure_realsense_pipeline(args.input)
+
+    #Configuration file parameters
+    projection_points_param = ast.literal_eval(config_args["Params"]["ProjectionPoints"])
+    warp_offset_param = int(config_args["Params"]["SideOffset"])
+    warp_width_param = 640
+    warp_height_param = 360
+    bgs_sensibility_param = int(config_args["Params"]["BgsSensibility"])
+    min_lab_color_param = ast.literal_eval(config_args["Params"]["MinLabColor"])
+    max_lab_color_param = ast.literal_eval(config_args["Params"]["MaxLabColor"])
+
+    projection.compute_warp_transform(projection_points_param, (warp_width_param, warp_height_param), warp_offset_param)
 
     ball_tracking_list = []
     ball_current_pose = None
@@ -172,7 +97,11 @@ try:
     show_time = 0
     send_data = False
 
+    backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=True)
+    #backSubDepth = cv2.createBackgroundSubtractorKNN(dist2Threshold=150.0, detectShadows=False)
+    backSubIR = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=False)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    
 
     # Streaming loop
     start_time = time.time();
@@ -187,74 +116,34 @@ try:
         # #depth_frame = hole_filter.process(depth_frame)
         # depth_frame = disparity_to_depth.process(depth_frame)
         # depth_frame = depth_frame.as_depth_frame()
-
         color_frame = aligned_frames.get_color_frame()
         infrared_frame = aligned_frames.get_infrared_frame()
 
-        color_image = np.asanyarray(color_frame.get_data())
-        color_image = cv2.cvtColor(color_image, cv2.COLOR_RGB2BGR)
-        warp_color_image = warp(color_image, M, (warp_width, warp_height))
-        warp_color_image = cv2.addWeighted( warp_color_image, 1.1, warp_color_image, 0, 0)
-        warp_gray_image = cv2.cvtColor(warp_color_image, cv2.COLOR_BGR2GRAY)
-
-        warp_canny_image = cv2.Canny(warp_gray_image, 50, 200)
-
-        #cv2.imshow("warp_gray_image", warp_gray_image)
-        #cv2.imshow("warp_canny_image", warp_canny_image)
-
-        # depth_image = np.asanyarray(depth_frame.get_data())
-        # depth_image_8u = cv2.convertScaleAbs(depth_image, alpha=255.0/6000.0, beta=0)
-        # warp_depth_image = warp(depth_image, M, (warp_width, warp_height))
-        # warp_depth_image = cv2.GaussianBlur(warp_depth_image, (5, 5), 0);
-        # warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
-
-        ir_image = np.asanyarray(infrared_frame.get_data())
-        ir_image  = cv2.resize(ir_image, (color_image.shape[1], color_image.shape[0]))
-        warp_ir_image = warp(ir_image, M, (warp_width, warp_height))
-        warp_ir_image = clahe.apply(warp_ir_image)
+        #warp_depth_image = projection.get_depth_warped(depth_frame, warp_width_param, warp_height_param)
+        #warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
+        warp_color_image, color_image = projection.get_color_warped(color_frame)
+        warp_ir_image, ir_image = projection.get_ir_warped(infrared_frame, clahe, color_image.shape)
 
         kernel = np.ones((5, 5), np.uint8)  
         
-        lab_image = cv2.cvtColor(warp_color_image, cv2.COLOR_BGR2LAB)
-        #orange
-        # minLAB = np.array([75, 150, 125])
-        # maxLAB = np.array([255, 255, 255])
+        lab_mask = vision.get_lab_mask(warp_color_image, kernel, min_lab_color_param, max_lab_color_param)
+        cv2.imshow("lab_mask", lab_mask)
 
-        #white 
-        minLAB = np.array([75, 81, 125])
-        maxLAB = np.array([245, 255, 255])
-
-        maskLAB = cv2.inRange(lab_image, minLAB, maxLAB)
-        maskLAB = cv2.erode(maskLAB, kernel, anchor=(2, 2))
-        maskLAB = cv2.dilate(maskLAB, kernel, anchor=(2, 2), iterations=2)
-
-        cv2.imshow("maskLAB", maskLAB)
-
-        color_mask = backSubColor.apply(warp_color_image)
-        _, color_mask = cv2.threshold(color_mask, 200, 255, cv2.THRESH_BINARY);
-        color_mask = cv2.erode(color_mask, kernel, anchor=(2, 2))
-        color_mask = cv2.dilate(color_mask, kernel, anchor=(2, 2), iterations=2)
-
+        color_mask = vision.get_color_mask(warp_color_image, kernel, backSubColor)
         cv2.imshow("color_mask", color_mask)
 
-        ir_mask = backSubIR.apply(warp_ir_image)
-        _, ir_mask = cv2.threshold(ir_mask, 200, 255, cv2.THRESH_BINARY);
-        ir_mask = cv2.erode(ir_mask, kernel, anchor=(2, 2))
-        ir_mask = cv2.dilate(ir_mask, kernel, anchor=(2, 2), iterations=3)
-
+        ir_mask = vision.get_ir_mask(warp_ir_image, kernel, backSubIR)
         cv2.imshow("ir_mask", ir_mask)
 
-        foreground_mask = (color_mask | ir_mask) & maskLAB
+        foreground_mask = (color_mask | ir_mask) & lab_mask
 
-        ball_future_mask = np.ones(maskLAB.shape, np.uint8)  
+        ball_future_mask = np.ones(lab_mask.shape, np.uint8)  
         if len(ball_tracking_list) >= 2:
             ball_prev_pos = ball_tracking_list[-2][0]
             ball_curr_pos = ball_tracking_list[-1][0]
             ball_estimated_pos = (ball_curr_pos[0] + (ball_curr_pos[0] - ball_prev_pos[0]), ball_curr_pos[1] + (ball_curr_pos[1] - ball_prev_pos[1]))
             angle = math.atan2((ball_prev_pos[1] - ball_curr_pos[1]), (ball_prev_pos[0] - ball_curr_pos[0])) * 180.0 / math.pi + 90.0 
-            #print("angle: " + str(angle))
             cv2.ellipse(ball_future_mask, (int(ball_estimated_pos[0]), int(ball_estimated_pos[1])), (30, 60), angle, angle, angle+360, (255), cv2.FILLED)
-            #cv2.circle(ball_future_mask, (int(ball_estimated_pos[0]), int(ball_estimated_pos[1])), , (255), cv2.FILLED)
             foreground_mask = foreground_mask & ball_future_mask
 
         cv2.imshow("ball_future_mask", ball_future_mask)                    
@@ -267,7 +156,7 @@ try:
                 if len(ball_tracking_list) == 0:   
                     c = max(contours, key = cv2.contourArea)
                 else:
-                    c = contourCloserToPose(contours, ball_previous_pose)
+                    c = util.contourCloserToPose(contours, ball_previous_pose)
 
                 c_area = cv2.contourArea(c)
                 c_bbox = cv2.boundingRect(c)
@@ -277,12 +166,12 @@ try:
                     ball_current_pose = c_circle
 
                     if ball_previous_pose is not None:
-                        ball_speed = euclideanDistance(ball_previous_pose[0], ball_current_pose[0]) / 1.0
+                        ball_speed = util.euclideanDistance(ball_previous_pose[0], ball_current_pose[0]) / 1.0
                         
                         #print("vel: " + str(ball_speed))
                         #print("size: " + str(len(ball_tracking_list)))
                         if len(ball_tracking_list) >=3 and ball_speed < 10.0:
-                            is_entering_goal = isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset)
+                            is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param)
                             ball_tracking_list.clear()
 
                             if is_entering_goal:
@@ -302,7 +191,7 @@ try:
             else:
                 if len(ball_tracking_list) >=3:
                     #print(ball_tracking_list)
-                    is_entering_goal = isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset)
+                    is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param)
                     if is_entering_goal:
                         send_data = True
                         #print("speed: " + str(ball_speed))
@@ -316,13 +205,13 @@ try:
                     ball_tracking_list.clear()
 
             if is_entering_goal:
-                scale_x = warp_color_image.shape[1] / (warp_color_image.shape[1] - 2 * warp_offset)
-                scale_y = warp_color_image.shape[0] / (warp_color_image.shape[0] - 2 * warp_offset)
+                scale_x = warp_color_image.shape[1] / (warp_color_image.shape[1] - 2 * warp_offset_param)
+                scale_y = warp_color_image.shape[0] / (warp_color_image.shape[0] - 2 * warp_offset_param)
 
                 if send_data:
                     #print("send data")
                     send_data = False
-                    udp_server.send_message(str(((((ball_goal_pose[0][0]-warp_offset)*scale_x) / warp_color_image.shape[1], ((ball_goal_pose[0][1]-warp_offset)*scale_y) / warp_color_image.shape[0]) , ball_goal_pose[1]))+"\n")
+                    udp_server.send_message(str(((((ball_goal_pose[0][0]-warp_offset_param)*scale_x) / warp_color_image.shape[1], ((ball_goal_pose[0][1]-warp_offset_param)*scale_y) / warp_color_image.shape[0]) , ball_goal_pose[1]))+"\n")
 
                 show_time += 1
                 if show_time < 5:
@@ -337,8 +226,7 @@ try:
 
         if args.debug:
             # Render image in opencv window 
-            #cv2.imshow("Depth 8Bit", depth_image_8u) 
-            #cv2.imshow("Color Stream", color_image)
+            cv2.imshow("Color Stream", color_image)
             cv2.imshow("Warp Color",  warp_color_image)
             #cv2.imshow("Warp Depth",  warp_depth_image_8u)
             cv2.imshow("Warp IR",  warp_ir_image)
@@ -351,5 +239,8 @@ try:
                 cv2.destroyAllWindows()
                 break
 
-finally:
-    pass
+
+if __name__ == "__main__":
+    args = read_args()
+    config_args = read_config(args.config)
+    main(args, config_args)
