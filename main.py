@@ -84,6 +84,7 @@ def main(args, config_args):
     bgs_sensibility_param = int(config_args["Params"]["BgsSensibility"])
     min_lab_color_param = ast.literal_eval(config_args["Params"]["MinLabColor"])
     max_lab_color_param = ast.literal_eval(config_args["Params"]["MaxLabColor"])
+    ball_hit_threshold_param = float(config_args["Params"]["BallHitThreshold"])
 
     projection.compute_warp_transform(projection_points_param, (warp_width_param, warp_height_param), warp_offset_param)
 
@@ -102,9 +103,7 @@ def main(args, config_args):
     backSubIR = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=False)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     
-
     # Streaming loop
-    start_time = time.time();
     while True:
         frames = pipeline.wait_for_frames()
         aligned_frames = align.process(frames)
@@ -127,9 +126,9 @@ def main(args, config_args):
         kernel = np.ones((5, 5), np.uint8)  
         
         lab_mask = vision.get_lab_mask(warp_color_image, kernel, min_lab_color_param, max_lab_color_param)
-        cv2.imshow("lab_mask", lab_mask)
+        #cv2.imshow("lab_mask", lab_mask)
 
-        color_mask = vision.get_color_mask(warp_color_image, kernel, backSubColor)
+        color_mask, color_mask_orig = vision.get_color_mask(warp_color_image, kernel, backSubColor)
         cv2.imshow("color_mask", color_mask)
 
         ir_mask = vision.get_ir_mask(warp_ir_image, kernel, backSubIR)
@@ -137,16 +136,10 @@ def main(args, config_args):
 
         foreground_mask = (color_mask | ir_mask) & lab_mask
 
-        ball_future_mask = np.ones(lab_mask.shape, np.uint8)  
         if len(ball_tracking_list) >= 2:
-            ball_prev_pos = ball_tracking_list[-2][0]
-            ball_curr_pos = ball_tracking_list[-1][0]
-            ball_estimated_pos = (ball_curr_pos[0] + (ball_curr_pos[0] - ball_prev_pos[0]), ball_curr_pos[1] + (ball_curr_pos[1] - ball_prev_pos[1]))
-            angle = math.atan2((ball_prev_pos[1] - ball_curr_pos[1]), (ball_prev_pos[0] - ball_curr_pos[0])) * 180.0 / math.pi + 90.0 
-            cv2.ellipse(ball_future_mask, (int(ball_estimated_pos[0]), int(ball_estimated_pos[1])), (30, 60), angle, angle, angle+360, (255), cv2.FILLED)
+            ball_future_mask = vision.get_ball_future_mask(ball_tracking_list, foreground_mask.shape)  
             foreground_mask = foreground_mask & ball_future_mask
-
-        cv2.imshow("ball_future_mask", ball_future_mask)                    
+            #cv2.imshow("ball_future_mask", ball_future_mask)                    
         
         if count_frames > 30:
             contours, hierarchy = cv2.findContours(foreground_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -159,8 +152,6 @@ def main(args, config_args):
                     c = util.contourCloserToPose(contours, ball_previous_pose)
 
                 c_area = cv2.contourArea(c)
-                c_bbox = cv2.boundingRect(c)
-
                 if c_area > (5 * 5) and c_area < (100 * 100):
                     c_circle = cv2.minEnclosingCircle(c)
                     ball_current_pose = c_circle
@@ -170,7 +161,7 @@ def main(args, config_args):
                         
                         #print("vel: " + str(ball_speed))
                         #print("size: " + str(len(ball_tracking_list)))
-                        if len(ball_tracking_list) >=3 and ball_speed < 10.0:
+                        if len(ball_tracking_list) >=3 and ball_speed < ball_hit_threshold_param:
                             is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param)
                             ball_tracking_list.clear()
 
@@ -181,7 +172,7 @@ def main(args, config_args):
                         else:
                             ball_tracking_list.append(ball_current_pose)
 
-                        if ball_speed < 10.0:
+                        if ball_speed < ball_hit_threshold_param:
                             ball_previous_pose = None
                             ball_tracking_list.clear()
 
@@ -194,7 +185,6 @@ def main(args, config_args):
                     is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param)
                     if is_entering_goal:
                         send_data = True
-                        #print("speed: " + str(ball_speed))
                         ball_goal_pos = (ball_tracking_list[-1][0][0] + (ball_tracking_list[-1][0][0] - ball_tracking_list[-2][0][0]), ball_tracking_list[-1][0][1] + (ball_tracking_list[-1][0][1] - ball_tracking_list[-2][0][1]))
                         ball_goal_rad = ball_tracking_list[-1][1]
                         ball_goal_pose = (ball_goal_pos, ball_goal_rad)
@@ -209,7 +199,6 @@ def main(args, config_args):
                 scale_y = warp_color_image.shape[0] / (warp_color_image.shape[0] - 2 * warp_offset_param)
 
                 if send_data:
-                    #print("send data")
                     send_data = False
                     udp_server.send_message(str(((((ball_goal_pose[0][0]-warp_offset_param)*scale_x) / warp_color_image.shape[1], ((ball_goal_pose[0][1]-warp_offset_param)*scale_y) / warp_color_image.shape[0]) , ball_goal_pose[1]))+"\n")
 
@@ -226,19 +215,16 @@ def main(args, config_args):
 
         if args.debug:
             # Render image in opencv window 
-            cv2.imshow("Color Stream", color_image)
+            #cv2.imshow("Color Stream", color_image)
             cv2.imshow("Warp Color",  warp_color_image)
-            #cv2.imshow("Warp Depth",  warp_depth_image_8u)
-            cv2.imshow("Warp IR",  warp_ir_image)
+            #cv2.imshow("Warp IR",  warp_ir_image)
             cv2.imshow("Foreground Mask", foreground_mask)
             key = cv2.waitKey(0)
-            #processing_time_end = time.time()
-            #print("Processing Time: " + str(processing_time_end-processing_time_start))
+            
             # if pressed escape exit program
             if key == 27:    
                 cv2.destroyAllWindows()
                 break
-
 
 if __name__ == "__main__":
     args = read_args()
