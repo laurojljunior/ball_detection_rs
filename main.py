@@ -85,6 +85,7 @@ def main(args, config_args):
     min_lab_color_param = ast.literal_eval(config_args["Params"]["MinLabColor"])
     max_lab_color_param = ast.literal_eval(config_args["Params"]["MaxLabColor"])
     ball_hit_threshold_param = float(config_args["Params"]["BallHitThreshold"])
+    travel_dist_threshold_param = float(config_args["Params"]["TravelDistanceThreshold"])
 
     projection.compute_warp_transform(projection_points_param, (warp_width_param, warp_height_param), warp_offset_param)
 
@@ -122,17 +123,15 @@ def main(args, config_args):
         #warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
         warp_color_image, color_image = projection.get_color_warped(color_frame)
         warp_ir_image, ir_image = projection.get_ir_warped(infrared_frame, clahe, color_image.shape)
-
-        kernel = np.ones((5, 5), np.uint8)  
         
-        lab_mask = vision.get_lab_mask(warp_color_image, kernel, min_lab_color_param, max_lab_color_param)
+        lab_mask = vision.get_lab_mask(warp_color_image, min_lab_color_param, max_lab_color_param)
         #cv2.imshow("lab_mask", lab_mask)
 
-        color_mask, color_mask_orig = vision.get_color_mask(warp_color_image, kernel, backSubColor)
-        cv2.imshow("color_mask", color_mask)
+        color_mask, color_mask_orig = vision.get_color_mask(warp_color_image, backSubColor)
+        #cv2.imshow("color_mask", color_mask)
 
-        ir_mask = vision.get_ir_mask(warp_ir_image, kernel, backSubIR)
-        cv2.imshow("ir_mask", ir_mask)
+        ir_mask = vision.get_ir_mask(warp_ir_image, backSubIR)
+        #cv2.imshow("ir_mask", ir_mask)
 
         foreground_mask = (color_mask | ir_mask) & lab_mask
 
@@ -153,6 +152,7 @@ def main(args, config_args):
 
                 c_area = cv2.contourArea(c)
                 if c_area > (5 * 5) and c_area < (100 * 100):
+	
                     c_circle = cv2.minEnclosingCircle(c)
                     ball_current_pose = c_circle
 
@@ -162,7 +162,7 @@ def main(args, config_args):
                         #print("vel: " + str(ball_speed))
                         #print("size: " + str(len(ball_tracking_list)))
                         if len(ball_tracking_list) >=3 and ball_speed < ball_hit_threshold_param:
-                            is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param)
+                            is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
                             ball_tracking_list.clear()
 
                             if is_entering_goal:
@@ -182,7 +182,7 @@ def main(args, config_args):
             else:
                 if len(ball_tracking_list) >=3:
                     #print(ball_tracking_list)
-                    is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param)
+                    is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
                     if is_entering_goal:
                         send_data = True
                         ball_goal_pos = (ball_tracking_list[-1][0][0] + (ball_tracking_list[-1][0][0] - ball_tracking_list[-2][0][0]), ball_tracking_list[-1][0][1] + (ball_tracking_list[-1][0][1] - ball_tracking_list[-2][0][1]))
@@ -218,8 +218,9 @@ def main(args, config_args):
             #cv2.imshow("Color Stream", color_image)
             cv2.imshow("Warp Color",  warp_color_image)
             #cv2.imshow("Warp IR",  warp_ir_image)
-            cv2.imshow("Foreground Mask", foreground_mask)
-            key = cv2.waitKey(0)
+            #cv2.imshow("Foreground Mask", foreground_mask)
+            time.sleep(0.005)
+            key = cv2.waitKey(1)
             
             # if pressed escape exit program
             if key == 27:    

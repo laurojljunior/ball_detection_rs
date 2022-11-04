@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 import math
 
-def get_lab_mask(warp_color_image, kernel, min, max):
+def get_lab_mask(warp_color_image, min, max):
+	kernel = np.ones((5, 5), np.uint8)  
 	lab_image = cv2.cvtColor(warp_color_image, cv2.COLOR_BGR2LAB)
 
 	minLAB = np.array(min)
@@ -14,7 +15,8 @@ def get_lab_mask(warp_color_image, kernel, min, max):
 
 	return maskLAB
 
-def get_color_mask(warp_color_image, kernel, backSubColor):
+def get_color_mask(warp_color_image, backSubColor):
+	kernel = np.ones((5, 5), np.uint8)
 	color_mask_orig = backSubColor.apply(warp_color_image)
 	_, color_mask_orig = cv2.threshold(color_mask_orig, 200, 255, cv2.THRESH_BINARY);
 	color_mask = cv2.erode(color_mask_orig, kernel, anchor=(2, 2))
@@ -22,7 +24,8 @@ def get_color_mask(warp_color_image, kernel, backSubColor):
 
 	return color_mask, color_mask_orig
 
-def get_ir_mask(warp_ir_image, kernel, backSubIR):
+def get_ir_mask(warp_ir_image, backSubIR):
+	kernel = np.ones((5, 5), np.uint8)
 	ir_mask = backSubIR.apply(warp_ir_image)
 	_, ir_mask = cv2.threshold(ir_mask, 200, 255, cv2.THRESH_BINARY);
 	ir_mask = cv2.erode(ir_mask, kernel, anchor=(2, 2))

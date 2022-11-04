@@ -5,7 +5,7 @@ def euclideanDistance(p1, p2):
     dis = ((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) ** 0.5
     return dis
 
-def isEnteringGoal(point_list, img, warp_offset):
+def isEnteringGoal(point_list, img, warp_offset, travel_dist_thresh):
 
     first_speed = euclideanDistance(point_list[0][0], point_list[1][0]) / 1.0
     #print(first_speed)
@@ -30,7 +30,7 @@ def isEnteringGoal(point_list, img, warp_offset):
 
     # print("a: " + str(a))
     # print("travel: " + str(travel_dist))
-    if a <= 3 and travel_dist >= 30.0:
+    if a <= 1 and travel_dist >= travel_dist_thresh:
         return True
     
     return False
