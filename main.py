@@ -20,6 +20,15 @@ from udp import UdpServer
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 
+warp_offset_param = None
+warp_offset_param_has_changed = False
+bgs_sensibility_param = None
+bgs_sensibility_param_has_changed = False
+ball_hit_threshold_param = None
+ball_hit_threshold_param_has_changed = False
+travel_dist_threshold_param = None
+travel_dist_threshold_param_has_changed = False
+
 depth_to_disparity =  rs.disparity_transform(True)
 disparity_to_depth = rs.disparity_transform(False)
 dec_filter = rs.decimation_filter()
@@ -44,7 +53,7 @@ def configure_realsense_pipeline(input_file):
         rs.config.enable_device_from_file(config, input_file, repeat_playback=False)
         profile = pipeline.start(config)
         playback = profile.get_device().as_playback()
-        playback.set_real_time(False)
+        playback.set_real_time(True)
     else:
         profile = pipeline.start(config)
         device = profile.get_device()
@@ -72,7 +81,38 @@ def read_config(file):
 	config.read(file)
 	return config
 
+def on_change_warp_offset_param(value):
+    global warp_offset_param, warp_offset_param_has_changed
+    warp_offset_param = value
+    warp_offset_param_has_changed = True
+
+def on_change_bgs_sensibility_param(value):
+    global bgs_sensibility_param, bgs_sensibility_param_has_changed
+    bgs_sensibility_param = value
+    bgs_sensibility_param_has_changed = True
+
+def on_change_ball_hit_threshold_param(value):
+    global ball_hit_threshold_param, ball_hit_threshold_param_has_changed
+    ball_hit_threshold_param = value
+    ball_hit_threshold_param_has_changed = True
+
+def on_change_travel_dist_threshold_param(value):
+    global travel_dist_threshold_param, travel_dist_threshold_param_has_changed
+    travel_dist_threshold_param = value
+    travel_dist_threshold_param_has_changed = True
+
+def write_config_file(filename, config):
+    global warp_offset_param, bgs_sensibility_param, ball_hit_threshold_param, travel_dist_threshold_param
+    with open(filename, 'w') as configfile:
+        config_args["Params"]["SideOffset"] = str(warp_offset_param)
+        config_args["Params"]["BgsSensibility"] = str(bgs_sensibility_param)
+        config_args["Params"]["BallHitThreshold"] = str(ball_hit_threshold_param)
+        config_args["Params"]["TravelDistanceThreshold"] = str(travel_dist_threshold_param)
+        config.write(configfile)
+
 def main(args, config_args):
+    global warp_offset_param, bgs_sensibility_param, ball_hit_threshold_param, travel_dist_threshold_param
+    global warp_offset_param_has_changed, bgs_sensibility_param_has_changed, ball_hit_threshold_param_has_changed, travel_dist_threshold_param_has_changed
     udp_server = UdpServer(UDP_IP, UDP_PORT)
     pipeline, profile, align = configure_realsense_pipeline(args.input)
 
@@ -84,11 +124,22 @@ def main(args, config_args):
     bgs_sensibility_param = int(config_args["Params"]["BgsSensibility"])
     min_lab_color_param = ast.literal_eval(config_args["Params"]["MinLabColor"])
     max_lab_color_param = ast.literal_eval(config_args["Params"]["MaxLabColor"])
-    ball_hit_threshold_param = float(config_args["Params"]["BallHitThreshold"])
-    travel_dist_threshold_param = float(config_args["Params"]["TravelDistanceThreshold"])
+    ball_hit_threshold_param = int(config_args["Params"]["BallHitThreshold"])
+    travel_dist_threshold_param = int(config_args["Params"]["TravelDistanceThreshold"])
 
-    projection.compute_warp_transform(projection_points_param, (warp_width_param, warp_height_param), warp_offset_param)
+    cv2.namedWindow("Frame", cv2.WINDOW_AUTOSIZE)
+    cv2.createTrackbar("Side Offset", "Frame", warp_offset_param, 100, on_change_warp_offset_param)
+    cv2.setTrackbarMin("Side Offset", "Frame", 0)
 
+    cv2.createTrackbar("Background Subtraction Sensibility", "Frame", bgs_sensibility_param, 2000, on_change_bgs_sensibility_param)
+    cv2.setTrackbarMin("Background Subtraction Sensibility", "Frame", 300)
+
+    cv2.createTrackbar("Ball Hit Speed Threshold", "Frame", ball_hit_threshold_param, 50, on_change_ball_hit_threshold_param)
+    cv2.setTrackbarMin("Ball Hit Speed Threshold", "Frame", 10)
+
+    cv2.createTrackbar("Ball Traveling Distance Threshold", "Frame", travel_dist_threshold_param, 50, on_change_travel_dist_threshold_param)
+    cv2.setTrackbarMin("Ball Traveling Distance Threshold", "Frame", 10)
+    
     ball_tracking_list = []
     ball_current_pose = None
     ball_previous_pose = None
@@ -99,13 +150,20 @@ def main(args, config_args):
     show_time = 0
     send_data = False
 
-    backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=True)
-    #backSubDepth = cv2.createBackgroundSubtractorKNN(dist2Threshold=150.0, detectShadows=False)
-    backSubIR = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=False)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     
     # Streaming loop
     while True:
+        if warp_offset_param_has_changed:
+            warp_offset_param_has_changed = False
+            projection.compute_warp_transform(projection_points_param, (warp_width_param, warp_height_param), warp_offset_param)
+
+        if bgs_sensibility_param_has_changed:
+            bgs_sensibility_param_has_changed = False
+            backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=True)
+            #backSubDepth = cv2.createBackgroundSubtractorKNN(dist2Threshold=150.0, detectShadows=False)
+            backSubIR = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=False)
+
         frames = pipeline.wait_for_frames()
         aligned_frames = align.process(frames)
 
@@ -216,14 +274,14 @@ def main(args, config_args):
         if args.debug:
             # Render image in opencv window 
             #cv2.imshow("Color Stream", color_image)
-            cv2.imshow("Warp Color",  warp_color_image)
+            cv2.imshow("Frame",  warp_color_image)
             #cv2.imshow("Warp IR",  warp_ir_image)
             #cv2.imshow("Foreground Mask", foreground_mask)
-            time.sleep(0.005)
             key = cv2.waitKey(1)
             
             # if pressed escape exit program
-            if key == 27:    
+            if key == 27:
+                write_config_file(args.config, config_args)
                 cv2.destroyAllWindows()
                 break
 

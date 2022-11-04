@@ -1,0 +1,18 @@
+[Params]
+#ProjectionPoints = [[214, 181], [1046, 187], [980, 465], [282, 465]]
+#ProjectionPoints = [[130, 290], [1130, 274], [1065, 620], [215, 627]]
+#ProjectionPoints = [[100, 150], [1150, 153], [1032, 487], [230, 480]]
+
+ProjectionPoints = [[1, 211], [1278, 204], [1119, 503], [174, 504]]
+SideOffset = 60
+BgsSensibility = 1000
+BallHitThreshold = 10
+TravelDistanceThreshold = 30
+
+#White
+MinLabColor = [75, 81, 125]
+MaxLabColor = [245, 255, 255]
+
+#Orange
+#MinLabColor = [75, 150, 125]
+#MaxLabColor = [255, 255, 255]
