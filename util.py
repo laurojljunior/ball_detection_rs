@@ -28,8 +28,8 @@ def isEnteringGoal(point_list, img, warp_offset, travel_dist_thresh):
 
     travel_dist = euclideanDistance(point_list[0][0], point_list[-1][0])
 
-    # print("a: " + str(a))
-    # print("travel: " + str(travel_dist))
+    #print("a: " + str(a))
+    #print("travel: " + str(travel_dist))
     if a <= 1 and travel_dist >= travel_dist_thresh:
         return True
     

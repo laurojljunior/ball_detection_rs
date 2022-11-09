@@ -219,14 +219,14 @@ def main(args, config_args):
                         
                         #print("vel: " + str(ball_speed))
                         #print("size: " + str(len(ball_tracking_list)))
-                        if len(ball_tracking_list) >=3 and ball_speed < ball_hit_threshold_param:
+                        if len(ball_tracking_list) >=2 and ball_speed < ball_hit_threshold_param:
                             is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
                             ball_tracking_list.clear()
 
                             if is_entering_goal:
                                 send_data = True
+                                show_time = 0
                                 ball_goal_pose = ball_current_pose
-
                         else:
                             ball_tracking_list.append(ball_current_pose)
 
@@ -234,15 +234,15 @@ def main(args, config_args):
                             ball_previous_pose = None
                             ball_tracking_list.clear()
 
-
                     ball_previous_pose = ball_current_pose
 
             else:
-                if len(ball_tracking_list) >=3:
+                if len(ball_tracking_list) >=2:
                     #print(ball_tracking_list)
                     is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
                     if is_entering_goal:
                         send_data = True
+                        show_time = 0
                         ball_goal_pos = (ball_tracking_list[-1][0][0] + (ball_tracking_list[-1][0][0] - ball_tracking_list[-2][0][0]), ball_tracking_list[-1][0][1] + (ball_tracking_list[-1][0][1] - ball_tracking_list[-2][0][1]))
                         ball_goal_rad = ball_tracking_list[-1][1]
                         ball_goal_pose = (ball_goal_pos, ball_goal_rad)
