@@ -5,11 +5,11 @@ def euclideanDistance(p1, p2):
     dis = ((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) ** 0.5
     return dis
 
-def isEnteringGoal(point_list, img, warp_offset, travel_dist_thresh):
+def isEnteringGoal(point_list, img, warp_offset, travel_dist_thresh, ground_line_thresh):
 
     first_speed = euclideanDistance(point_list[0][0], point_list[1][0]) / 1.0
-    #print(first_speed)
-    if first_speed <= 10.0:
+    #print("first_speed: " + str(first_speed))
+    if point_list[-1][0][1] < ground_line_thresh and first_speed <= 10.0:
         return False
 
     if point_list[-1][0][1] - (img.shape[0] - warp_offset) > (0.2 * warp_offset):
@@ -23,17 +23,27 @@ def isEnteringGoal(point_list, img, warp_offset, travel_dist_thresh):
         list_y.append(p[0][1])
 
     y = np.array(list_y)
-	
     a, b = np.polyfit(x, y, 1)
 
-    travel_dist = euclideanDistance(point_list[0][0], point_list[-1][0])
 
-    #print("a: " + str(a))
-    #print("travel: " + str(travel_dist))
-    if a <= 1 and travel_dist >= travel_dist_thresh:
-        return True
+    if point_list[-1][0][1] < ground_line_thresh:
+        travel_dist = euclideanDistance(point_list[0][0], point_list[-1][0])
+
+        #print("a: " + str(a))
+        #print("travel: " + str(travel_dist))
+        if a <= 1 and travel_dist >= travel_dist_thresh:
+            return True
     
-    return False
+        return False
+    else:
+        travel_dist = euclideanDistance(point_list[0][0], point_list[-1][0])
+
+        #print("a: " + str(a))
+        #print("travel: " + str(travel_dist))
+        if a <= 1:
+            return True
+    
+        return False
 
 def contourCloserToPose(contours, pose):
     minDist = 9999

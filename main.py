@@ -21,13 +21,15 @@ UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 
 warp_offset_param = None
-warp_offset_param_has_changed = False
+warp_offset_param_has_changed = True
 bgs_sensibility_param = None
-bgs_sensibility_param_has_changed = False
+bgs_sensibility_param_has_changed = True
 ball_hit_threshold_param = None
-ball_hit_threshold_param_has_changed = False
+ball_hit_threshold_param_has_changed = True
 travel_dist_threshold_param = None
-travel_dist_threshold_param_has_changed = False
+travel_dist_threshold_param_has_changed = True
+ground_line_threshold_param = None
+ground_line_threshold_param_has_changed = True
 
 depth_to_disparity =  rs.disparity_transform(True)
 disparity_to_depth = rs.disparity_transform(False)
@@ -101,6 +103,11 @@ def on_change_travel_dist_threshold_param(value):
     travel_dist_threshold_param = value
     travel_dist_threshold_param_has_changed = True
 
+def on_change_ground_line_threshold_param(value):
+    global ground_line_threshold_param, ground_line_threshold_param_has_changed
+    ground_line_threshold_param = value
+    ground_line_threshold_param_has_changed = True
+
 def write_config_file(filename, config):
     global warp_offset_param, bgs_sensibility_param, ball_hit_threshold_param, travel_dist_threshold_param
     with open(filename, 'w') as configfile:
@@ -108,11 +115,12 @@ def write_config_file(filename, config):
         config_args["Params"]["BgsSensibility"] = str(bgs_sensibility_param)
         config_args["Params"]["BallHitThreshold"] = str(ball_hit_threshold_param)
         config_args["Params"]["TravelDistanceThreshold"] = str(travel_dist_threshold_param)
+        config_args["Params"]["GroundLineThreshold"] = str(ground_line_threshold_param)
         config.write(configfile)
 
 def main(args, config_args):
-    global warp_offset_param, bgs_sensibility_param, ball_hit_threshold_param, travel_dist_threshold_param
-    global warp_offset_param_has_changed, bgs_sensibility_param_has_changed, ball_hit_threshold_param_has_changed, travel_dist_threshold_param_has_changed
+    global warp_offset_param, bgs_sensibility_param, ball_hit_threshold_param, travel_dist_threshold_param, ground_line_threshold_param
+    global warp_offset_param_has_changed, bgs_sensibility_param_has_changed, ball_hit_threshold_param_has_changed, travel_dist_threshold_param_has_changed, ground_line_threshold_param_has_changed
     udp_server = UdpServer(UDP_IP, UDP_PORT)
     pipeline, profile, align = configure_realsense_pipeline(args.input)
 
@@ -126,19 +134,26 @@ def main(args, config_args):
     max_lab_color_param = ast.literal_eval(config_args["Params"]["MaxLabColor"])
     ball_hit_threshold_param = int(config_args["Params"]["BallHitThreshold"])
     travel_dist_threshold_param = int(config_args["Params"]["TravelDistanceThreshold"])
+    ground_line_threshold_param = int(config_args["Params"]["GroundLineThreshold"])
 
-    cv2.namedWindow("Frame", cv2.WINDOW_AUTOSIZE)
-    cv2.createTrackbar("Side Offset", "Frame", warp_offset_param, 100, on_change_warp_offset_param)
-    cv2.setTrackbarMin("Side Offset", "Frame", 0)
+    
+    if args.debug is not None:
+        cv2.namedWindow("Frame", cv2.WINDOW_AUTOSIZE)
 
-    cv2.createTrackbar("Background Subtraction Sensibility", "Frame", bgs_sensibility_param, 2000, on_change_bgs_sensibility_param)
-    cv2.setTrackbarMin("Background Subtraction Sensibility", "Frame", 300)
+        cv2.createTrackbar("Side Offset", "Frame", warp_offset_param, 100, on_change_warp_offset_param)
+        cv2.setTrackbarMin("Side Offset", "Frame", 0)
 
-    cv2.createTrackbar("Ball Hit Speed Threshold", "Frame", ball_hit_threshold_param, 50, on_change_ball_hit_threshold_param)
-    cv2.setTrackbarMin("Ball Hit Speed Threshold", "Frame", 10)
+        cv2.createTrackbar("Background Subtraction Sensibility", "Frame", bgs_sensibility_param, 2000, on_change_bgs_sensibility_param)
+        cv2.setTrackbarMin("Background Subtraction Sensibility", "Frame", 300)
 
-    cv2.createTrackbar("Ball Traveling Distance Threshold", "Frame", travel_dist_threshold_param, 50, on_change_travel_dist_threshold_param)
-    cv2.setTrackbarMin("Ball Traveling Distance Threshold", "Frame", 10)
+        cv2.createTrackbar("Ball Hit Speed Threshold", "Frame", ball_hit_threshold_param, 50, on_change_ball_hit_threshold_param)
+        cv2.setTrackbarMin("Ball Hit Speed Threshold", "Frame", 10)
+
+        cv2.createTrackbar("Ball Traveling Distance Threshold", "Frame", travel_dist_threshold_param, 50, on_change_travel_dist_threshold_param)
+        cv2.setTrackbarMin("Ball Traveling Distance Threshold", "Frame", 1)
+
+        cv2.createTrackbar("Ground Line Threshold", "Frame", ground_line_threshold_param, warp_height_param, on_change_ground_line_threshold_param)
+        cv2.setTrackbarMin("Ground Line Threshold", "Frame", int(warp_height_param / 2))
     
     ball_tracking_list = []
     ball_current_pose = None
@@ -171,14 +186,14 @@ def main(args, config_args):
         # depth_frame = depth_to_disparity.process(depth_frame)
         # depth_frame = dec_filter.process(depth_frame)
         # depth_frame = temp_filter.process(depth_frame)
-        # #depth_frame = hole_filter.process(depth_frame)
+        # depth_frame = hole_filter.process(depth_frame)
         # depth_frame = disparity_to_depth.process(depth_frame)
         # depth_frame = depth_frame.as_depth_frame()
         color_frame = aligned_frames.get_color_frame()
         infrared_frame = aligned_frames.get_infrared_frame()
 
-        #warp_depth_image = projection.get_depth_warped(depth_frame, warp_width_param, warp_height_param)
-        #warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
+        # warp_depth_image, depth_image = projection.get_depth_warped(depth_frame)
+        # warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
         warp_color_image, color_image = projection.get_color_warped(color_frame)
         warp_ir_image, ir_image = projection.get_ir_warped(infrared_frame, clahe, color_image.shape)
         
@@ -220,7 +235,7 @@ def main(args, config_args):
                         #print("vel: " + str(ball_speed))
                         #print("size: " + str(len(ball_tracking_list)))
                         if len(ball_tracking_list) >=2 and ball_speed < ball_hit_threshold_param:
-                            is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
+                            is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param, ground_line_threshold_param)
                             ball_tracking_list.clear()
 
                             if is_entering_goal:
@@ -230,16 +245,16 @@ def main(args, config_args):
                         else:
                             ball_tracking_list.append(ball_current_pose)
 
-                        if ball_speed < ball_hit_threshold_param:
-                            ball_previous_pose = None
-                            ball_tracking_list.clear()
+                        # if ball_speed < ball_hit_threshold_param:
+                        #     ball_previous_pose = None
+                        #     ball_tracking_list.clear()
 
                     ball_previous_pose = ball_current_pose
 
             else:
                 if len(ball_tracking_list) >=2:
                     #print(ball_tracking_list)
-                    is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
+                    is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param, ground_line_threshold_param)
                     if is_entering_goal:
                         send_data = True
                         show_time = 0
@@ -269,12 +284,14 @@ def main(args, config_args):
                     is_entering_goal = False
 
         cv2.putText(warp_color_image, "Frame: " + str(count_frames), (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        cv2.line(warp_color_image, (0, ground_line_threshold_param), (warp_color_image.shape[1]-1, ground_line_threshold_param), (255, 0, 255), 1)
         count_frames += 1
 
-        if args.debug:
+        if args.debug is not None:
             # Render image in opencv window 
             #cv2.imshow("Color Stream", color_image)
             cv2.imshow("Frame",  warp_color_image)
+            #cv2.imshow("Warp Depth", warp_depth_image_8u)
             #cv2.imshow("Warp IR",  warp_ir_image)
             #cv2.imshow("Foreground Mask", foreground_mask)
             key = cv2.waitKey(1)
