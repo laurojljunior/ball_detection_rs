@@ -9,6 +9,8 @@ BgsSensibility = 1000
 BallHitThreshold = 10
 TravelDistanceThreshold = 30
 
+#projectionpoints = [[37, 166], [1237, 159], [1076, 459], [216, 445]]
+
 #White
 MinLabColor = [75, 81, 125]
 MaxLabColor = [245, 255, 255]

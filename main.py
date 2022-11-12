@@ -166,7 +166,7 @@ def main(args, config_args):
     send_data = False
 
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    
+    plane = None
     # Streaming loop
     while True:
         if warp_offset_param_has_changed:
@@ -182,18 +182,18 @@ def main(args, config_args):
         frames = pipeline.wait_for_frames()
         aligned_frames = align.process(frames)
 
-        # depth_frame = aligned_frames.get_depth_frame()
-        # depth_frame = depth_to_disparity.process(depth_frame)
-        # depth_frame = dec_filter.process(depth_frame)
-        # depth_frame = temp_filter.process(depth_frame)
-        # depth_frame = hole_filter.process(depth_frame)
-        # depth_frame = disparity_to_depth.process(depth_frame)
-        # depth_frame = depth_frame.as_depth_frame()
+        depth_frame = aligned_frames.get_depth_frame()
+        depth_frame = depth_to_disparity.process(depth_frame)
+        depth_frame = dec_filter.process(depth_frame)
+        depth_frame = temp_filter.process(depth_frame)
+        depth_frame = hole_filter.process(depth_frame)
+        depth_frame = disparity_to_depth.process(depth_frame)
+        depth_frame = depth_frame.as_depth_frame()
         color_frame = aligned_frames.get_color_frame()
         infrared_frame = aligned_frames.get_infrared_frame()
 
-        # warp_depth_image, depth_image = projection.get_depth_warped(depth_frame)
-        # warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
+        warp_depth_image, depth_image = projection.get_depth_warped(depth_frame)
+        warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
         warp_color_image, color_image = projection.get_color_warped(color_frame)
         warp_ir_image, ir_image = projection.get_ir_warped(infrared_frame, clahe, color_image.shape)
         
@@ -227,23 +227,37 @@ def main(args, config_args):
                 if c_area > (5 * 5) and c_area < (100 * 100):
 	
                     c_circle = cv2.minEnclosingCircle(c)
-                    ball_current_pose = c_circle
+                    depth = warp_depth_image[int(c_circle[0][1]), int(c_circle[0][0])]
+                    ball_current_pose = c_circle + (depth, )
 
                     if ball_previous_pose is not None:
                         ball_speed = util.euclideanDistance(ball_previous_pose[0], ball_current_pose[0]) / 1.0
-                        
+
                         #print("vel: " + str(ball_speed))
                         #print("size: " + str(len(ball_tracking_list)))
-                        if len(ball_tracking_list) >=2 and ball_speed < ball_hit_threshold_param:
-                            is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param, ground_line_threshold_param)
-                            ball_tracking_list.clear()
+                        if ball_current_pose[0][1] < ground_line_threshold_param:
+                            if len(ball_tracking_list) >=2 and ball_speed < ball_hit_threshold_param:
+                                is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
+                                ball_tracking_list.clear()
 
-                            if is_entering_goal:
-                                send_data = True
-                                show_time = 0
-                                ball_goal_pose = ball_current_pose
+                                if is_entering_goal:
+                                    send_data = True
+                                    show_time = 0
+                                    ball_goal_pose = ball_current_pose
+                            else:
+                                ball_tracking_list.append(ball_current_pose)
                         else:
-                            ball_tracking_list.append(ball_current_pose)
+                            gl_dist = math.fabs(ball_current_pose[0][1] - ground_line_threshold_param)
+                            if len(ball_tracking_list) >=2 and gl_dist < 5.0 and ball_speed < ball_hit_threshold_param:
+                                is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, 0)
+                                ball_tracking_list.clear()
+
+                                if is_entering_goal:
+                                    send_data = True
+                                    show_time = 0
+                                    ball_goal_pose = ball_current_pose
+                            else:
+                                ball_tracking_list.append(ball_current_pose)
 
                         # if ball_speed < ball_hit_threshold_param:
                         #     ball_previous_pose = None
@@ -254,7 +268,7 @@ def main(args, config_args):
             else:
                 if len(ball_tracking_list) >=2:
                     #print(ball_tracking_list)
-                    is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param, ground_line_threshold_param)
+                    is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
                     if is_entering_goal:
                         send_data = True
                         show_time = 0
