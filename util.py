@@ -10,12 +10,8 @@ def euclideanDistance(p1, p2):
 def isEnteringGoal(point_list, img, warp_offset, travel_dist_thresh):
     first_speed = euclideanDistance(point_list[0][0], point_list[1][0]) / 1.0
     #print("first_speed: " + str(first_speed))
-    if travel_dist_thresh > 0 and first_speed <= 10.0:
-        return False
-
-    if point_list[-1][0][1] - (img.shape[0] - warp_offset) > (0.2 * warp_offset):
-        #print("eita")
-        return False
+    #if travel_dist_thresh > 0 and first_speed <= 10.0:
+    #    return False
 
     x = np.array(list(range(1, len(point_list)+1)))
 
@@ -35,14 +31,15 @@ def isEnteringGoal(point_list, img, warp_offset, travel_dist_thresh):
 
     travel_dist = euclideanDistance(point_list[0][0], point_list[-1][0])
 
-    #print("y_slope: " + str(y_slope))
-    #print("d_slope: " + str(d_slope))
-    #print("travel: " + str(travel_dist))
-    if y_slope <= 1 and d_slope > 10 and travel_dist >= travel_dist_thresh:
+    # print("y_slope: " + str(y_slope))
+    # print("d_slope: " + str(d_slope))
+    # print("travel: " + str(travel_dist))
+
+    if y_slope <= 1 and d_slope < -15 and travel_dist >= travel_dist_thresh:
         return True
 
     return False
-
+     
 def contourCloserToPose(contours, pose):
     minDist = 9999
     minIdx = 0
@@ -93,6 +90,21 @@ def get_xyz_from_neighbors(depth_intrinsics, depth_image, p):
     z_mean = (xyz[2] + z1 + z2 + z3 + z4 + z5 + z6 + z7 + z8) / 9.0
 
     return (xyz[0], xyz[1], z_mean)
+
+def get_net_plane_from_projection_points(projection_points, depth_image, depth_intrinsics):
+    projection_points_param1 = (projection_points[0][0] + 200, projection_points[0][1] + 100)
+    projection_points_param2 = (projection_points[1][0] - 200, projection_points[1][1] + 100)
+    projection_points_param3 = (projection_points[2][0] - 100, projection_points[2][1] - 100)
+
+    p1 = get_xyz_from_neighbors(depth_intrinsics, depth_image, projection_points_param1)
+    p2 = get_xyz_from_neighbors(depth_intrinsics, depth_image, projection_points_param2)
+    p3 = get_xyz_from_neighbors(depth_intrinsics, depth_image, projection_points_param3)
+
+    plane = plane_equation(p1, p2, p3)
+
+    return plane
+
+    
 		
 def refineBallPosition(pos, mask, radius):
     ball_mask = np.zeros(mask.shape, np.uint8) 
@@ -114,20 +126,3 @@ def refineBallPosition(pos, mask, radius):
 
     return None, None
 
-# depth_intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
-# projection_points_param1 = (projection_points_param[0][0] + 50, projection_points_param[0][1] + 50)
-# projection_points_param2 = (projection_points_param[1][0] - 50, projection_points_param[1][1] + 50)
-# projection_points_param3 = (projection_points_param[2][0] - 50, projection_points_param[2][1] - 50)
-
-# p1 = util.get_xyz_from_neighbors(depth_intrinsics, depth_image, projection_points_param1)
-# p2 = util.get_xyz_from_neighbors(depth_intrinsics, depth_image, projection_points_param2)
-# p3 = util.get_xyz_from_neighbors(depth_intrinsics, depth_image, projection_points_param3)
-
-# if plane is None:
-#     plane = util.plane_equation(p1, p2, p3)
-
-# ball_position_unwarped = projection.unwarp_point(ball_current_pose[0])
-# print(ball_position_unwarped)
-# p = util.get_xyz_from_neighbors(depth_intrinsics, depth_image, ball_position_unwarped)
-# dist = util.distance_to_plane(p, plane)
-# print(dist)

@@ -166,7 +166,8 @@ def main(args, config_args):
     send_data = False
 
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    plane = None
+    net_plane = None
+    depth_intrinsics = None
     # Streaming loop
     while True:
         if warp_offset_param_has_changed:
@@ -192,7 +193,12 @@ def main(args, config_args):
         color_frame = aligned_frames.get_color_frame()
         infrared_frame = aligned_frames.get_infrared_frame()
 
+        if depth_intrinsics is None:
+            depth_intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
+            print("Depth Intrinsics: " + str(depth_intrinsics))
+
         warp_depth_image, depth_image = projection.get_depth_warped(depth_frame)
+        depth_image_8u = cv2.convertScaleAbs(depth_image, alpha=255.0/6000.0, beta=0)
         warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
         warp_color_image, color_image = projection.get_color_warped(color_frame)
         warp_ir_image, ir_image = projection.get_ir_warped(infrared_frame, clahe, color_image.shape)
@@ -227,14 +233,20 @@ def main(args, config_args):
                 if c_area > (5 * 5) and c_area < (100 * 100):
 	
                     c_circle = cv2.minEnclosingCircle(c)
-                    depth = warp_depth_image[int(c_circle[0][1]), int(c_circle[0][0])]
-                    ball_current_pose = c_circle + (depth, )
+                    ball_current_pose = c_circle
+                    if net_plane is None:
+                        net_plane = util.get_net_plane_from_projection_points(projection_points_param, depth_image, depth_intrinsics)
+
+                    ball_position_unwarped = projection.unwarp_point(ball_current_pose[0])
+                    ball_position_pt = util.get_xyz_from_neighbors(depth_intrinsics, depth_image, ball_position_unwarped)
+                    ball_dist_to_net_plane = util.distance_to_plane(ball_position_pt, net_plane)
+                    ball_current_pose += (ball_dist_to_net_plane, )
 
                     if ball_previous_pose is not None:
                         ball_speed = util.euclideanDistance(ball_previous_pose[0], ball_current_pose[0]) / 1.0
 
-                        #print("vel: " + str(ball_speed))
-                        #print("size: " + str(len(ball_tracking_list)))
+                        # print("vel: " + str(ball_speed))
+                        # print("size: " + str(len(ball_tracking_list)))
                         if ball_current_pose[0][1] < ground_line_threshold_param:
                             if len(ball_tracking_list) >=2 and ball_speed < ball_hit_threshold_param:
                                 is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, travel_dist_threshold_param)
@@ -248,7 +260,7 @@ def main(args, config_args):
                                 ball_tracking_list.append(ball_current_pose)
                         else:
                             gl_dist = math.fabs(ball_current_pose[0][1] - ground_line_threshold_param)
-                            if len(ball_tracking_list) >=2 and gl_dist < 5.0 and ball_speed < ball_hit_threshold_param:
+                            if len(ball_tracking_list) >= 2 and gl_dist < 10.0 and ball_speed < ball_hit_threshold_param:
                                 is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, 0)
                                 ball_tracking_list.clear()
 
@@ -304,6 +316,7 @@ def main(args, config_args):
         if args.debug is not None:
             # Render image in opencv window 
             #cv2.imshow("Color Stream", color_image)
+            #cv2.imshow("Depth Stream", depth_image_8u)
             cv2.imshow("Frame",  warp_color_image)
             #cv2.imshow("Warp Depth", warp_depth_image_8u)
             #cv2.imshow("Warp IR",  warp_ir_image)
