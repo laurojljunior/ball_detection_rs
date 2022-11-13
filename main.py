@@ -21,13 +21,13 @@ UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 
 warp_offset_param = None
-warp_offset_param_has_changed = False
+warp_offset_param_has_changed = True
 bgs_sensibility_param = None
-bgs_sensibility_param_has_changed = False
+bgs_sensibility_param_has_changed = True
 ball_hit_threshold_param = None
-ball_hit_threshold_param_has_changed = False
+ball_hit_threshold_param_has_changed = True
 travel_dist_threshold_param = None
-travel_dist_threshold_param_has_changed = False
+travel_dist_threshold_param_has_changed = True
 
 depth_to_disparity =  rs.disparity_transform(True)
 disparity_to_depth = rs.disparity_transform(False)
@@ -127,18 +127,19 @@ def main(args, config_args):
     ball_hit_threshold_param = int(config_args["Params"]["BallHitThreshold"])
     travel_dist_threshold_param = int(config_args["Params"]["TravelDistanceThreshold"])
 
-    cv2.namedWindow("Frame", cv2.WINDOW_AUTOSIZE)
-    cv2.createTrackbar("Side Offset", "Frame", warp_offset_param, 100, on_change_warp_offset_param)
-    cv2.setTrackbarMin("Side Offset", "Frame", 0)
+    if args.debug is not None:
+        cv2.namedWindow("Frame", cv2.WINDOW_AUTOSIZE)
+        cv2.createTrackbar("Side Offset", "Frame", warp_offset_param, 100, on_change_warp_offset_param)
+        cv2.setTrackbarMin("Side Offset", "Frame", 0)
 
-    cv2.createTrackbar("Background Subtraction Sensibility", "Frame", bgs_sensibility_param, 2000, on_change_bgs_sensibility_param)
-    cv2.setTrackbarMin("Background Subtraction Sensibility", "Frame", 300)
+        cv2.createTrackbar("Background Subtraction Sensibility", "Frame", bgs_sensibility_param, 2000, on_change_bgs_sensibility_param)
+        cv2.setTrackbarMin("Background Subtraction Sensibility", "Frame", 300)
 
-    cv2.createTrackbar("Ball Hit Speed Threshold", "Frame", ball_hit_threshold_param, 50, on_change_ball_hit_threshold_param)
-    cv2.setTrackbarMin("Ball Hit Speed Threshold", "Frame", 10)
+        cv2.createTrackbar("Ball Hit Speed Threshold", "Frame", ball_hit_threshold_param, 50, on_change_ball_hit_threshold_param)
+        cv2.setTrackbarMin("Ball Hit Speed Threshold", "Frame", 10)
 
-    cv2.createTrackbar("Ball Traveling Distance Threshold", "Frame", travel_dist_threshold_param, 50, on_change_travel_dist_threshold_param)
-    cv2.setTrackbarMin("Ball Traveling Distance Threshold", "Frame", 10)
+        cv2.createTrackbar("Ball Traveling Distance Threshold", "Frame", travel_dist_threshold_param, 50, on_change_travel_dist_threshold_param)
+        cv2.setTrackbarMin("Ball Traveling Distance Threshold", "Frame", 10)
     
     ball_tracking_list = []
     ball_current_pose = None
