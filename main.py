@@ -342,7 +342,6 @@ def main(args, config_args):
         cv2.putText(warp_color_image, "Frame: " + str(count_frames), (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         cv2.line(warp_color_image, (0, ground_line_threshold_param), (warp_color_image.shape[1]-1, ground_line_threshold_param), (255, 0, 255), 1)
 
-
         count_frames += 1
         count_frames_fps+=1
         if (time.time() - start_time) > 1.0 :
