@@ -55,7 +55,7 @@ def configure_realsense_pipeline(input_file):
         rs.config.enable_device_from_file(config, input_file, repeat_playback=False)
         profile = pipeline.start(config)
         playback = profile.get_device().as_playback()
-        playback.set_real_time(False)
+        playback.set_real_time(True)
     else:
         profile = pipeline.start(config)
         device = profile.get_device()
@@ -162,6 +162,8 @@ def main(args, config_args):
     
     is_entering_goal = False
     count_frames = 0
+    count_frames_fps = 0
+    fps = 0
     show_time = 0
     send_data = False
 
@@ -171,6 +173,7 @@ def main(args, config_args):
     depth_image_list = []
 
     depth_intrinsics = None
+    start_time = time.time()
     # Streaming loop
     while True:
         if warp_offset_param_has_changed:
@@ -338,7 +341,16 @@ def main(args, config_args):
 
         cv2.putText(warp_color_image, "Frame: " + str(count_frames), (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         cv2.line(warp_color_image, (0, ground_line_threshold_param), (warp_color_image.shape[1]-1, ground_line_threshold_param), (255, 0, 255), 1)
+
+
         count_frames += 1
+        count_frames_fps+=1
+        if (time.time() - start_time) > 1.0 :
+            fps = count_frames_fps / (time.time() - start_time)
+            count_frames_fps = 0
+            start_time = time.time()
+
+        cv2.putText(warp_color_image, "FPS: " + str(int(fps + 0.5)), (warp_color_image.shape[1] - 130, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
         if args.debug is not None:
             # Render image in opencv window 
@@ -347,8 +359,8 @@ def main(args, config_args):
             cv2.imshow("Frame",  warp_color_image)
             #cv2.imshow("Warp Depth", warp_depth_image_8u)
             #cv2.imshow("Warp IR",  warp_ir_image)
-            cv2.imshow("Foreground Mask", foreground_mask)
-            key = cv2.waitKey(0)
+            #cv2.imshow("Foreground Mask", foreground_mask)
+            key = cv2.waitKey(1)
             
             # if pressed escape exit program
             if key == 27:
