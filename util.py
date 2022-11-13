@@ -122,7 +122,7 @@ def refineBallPosition(pos, mask, radius):
         c = max(contours, key = cv2.contourArea)
         ccircle = cv2.minEnclosingCircle(c)
     
-        return ccircle[0], ccircle[1]
+        return ccircle
 
-    return None, None
+    return None
 

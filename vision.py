@@ -33,6 +33,15 @@ def get_ir_mask(warp_ir_image, backSubIR):
 
 	return ir_mask
 
+def get_depth_mask(warp_depth_image, backSubDepth):
+	kernel = np.ones((5, 5), np.uint8)
+	depth_mask = backSubDepth.apply(warp_depth_image)
+	_, depth_mask = cv2.threshold(depth_mask, 200, 255, cv2.THRESH_BINARY);
+	# depth_mask = cv2.erode(depth_mask, kernel, anchor=(2, 2))
+	# depth_mask = cv2.dilate(depth_mask, kernel, anchor=(2, 2), iterations=3)
+
+	return depth_mask
+
 def get_ball_future_mask(ball_tracking_list, size):
 	ball_future_mask = np.ones(size, np.uint8)  
 	if len(ball_tracking_list) >= 2:

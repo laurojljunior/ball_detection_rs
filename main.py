@@ -55,7 +55,7 @@ def configure_realsense_pipeline(input_file):
         rs.config.enable_device_from_file(config, input_file, repeat_playback=False)
         profile = pipeline.start(config)
         playback = profile.get_device().as_playback()
-        playback.set_real_time(True)
+        playback.set_real_time(False)
     else:
         profile = pipeline.start(config)
         device = profile.get_device()
@@ -167,6 +167,9 @@ def main(args, config_args):
 
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     net_plane = None
+    net_plane_memory = 0
+    depth_image_list = []
+
     depth_intrinsics = None
     # Streaming loop
     while True:
@@ -177,7 +180,7 @@ def main(args, config_args):
         if bgs_sensibility_param_has_changed:
             bgs_sensibility_param_has_changed = False
             backSubColor = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=True)
-            #backSubDepth = cv2.createBackgroundSubtractorKNN(dist2Threshold=150.0, detectShadows=False)
+            backSubDepth = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=100.0, detectShadows=False)
             backSubIR = cv2.createBackgroundSubtractorKNN(history = 30, dist2Threshold=bgs_sensibility_param, detectShadows=False)
 
         frames = pipeline.wait_for_frames()
@@ -201,13 +204,17 @@ def main(args, config_args):
         depth_image_8u = cv2.convertScaleAbs(depth_image, alpha=255.0/6000.0, beta=0)
         warp_depth_image_8u = cv2.convertScaleAbs(warp_depth_image, alpha=255.0/6000.0, beta=0)
         warp_color_image, color_image = projection.get_color_warped(color_frame)
-        warp_ir_image, ir_image = projection.get_ir_warped(infrared_frame, clahe, color_image.shape)
+        warp_ir_image, ir_image = projection.get_ir_warped(infrared_frame, color_image.shape)
+        warp_ir_image = clahe.apply(warp_ir_image)
         
         lab_mask = vision.get_lab_mask(warp_color_image, min_lab_color_param, max_lab_color_param)
         #cv2.imshow("lab_mask", lab_mask)
 
         color_mask, color_mask_orig = vision.get_color_mask(warp_color_image, backSubColor)
         #cv2.imshow("color_mask", color_mask)
+
+        # depth_mask = vision.get_depth_mask(warp_depth_image_8u, backSubDepth)
+        # cv2.imshow("depth_mask", depth_mask)
 
         ir_mask = vision.get_ir_mask(warp_ir_image, backSubIR)
         #cv2.imshow("ir_mask", ir_mask)
@@ -217,7 +224,18 @@ def main(args, config_args):
         if len(ball_tracking_list) >= 2:
             ball_future_mask = vision.get_ball_future_mask(ball_tracking_list, foreground_mask.shape)  
             foreground_mask = foreground_mask & ball_future_mask
-            #cv2.imshow("ball_future_mask", ball_future_mask)                    
+            #cv2.imshow("ball_future_mask", ball_future_mask)
+
+        #define net plane based on first 30 depth samples
+        if net_plane is None:
+            if net_plane_memory <= 30:
+                net_plane_memory +=1
+                depth_image_list.append(depth_image.copy())
+
+                if net_plane_memory == 30:
+                    depth_image_mean = np.mean(depth_image_list, axis=0)
+                    depth_image_mean = depth_image_mean.astype(np.uint16)
+                    net_plane = util.get_net_plane_from_projection_points(projection_points_param, depth_image_mean, depth_intrinsics)
         
         if count_frames > 30:
             contours, hierarchy = cv2.findContours(foreground_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -234,8 +252,6 @@ def main(args, config_args):
 	
                     c_circle = cv2.minEnclosingCircle(c)
                     ball_current_pose = c_circle
-                    if net_plane is None:
-                        net_plane = util.get_net_plane_from_projection_points(projection_points_param, depth_image, depth_intrinsics)
 
                     ball_position_unwarped = projection.unwarp_point(ball_current_pose[0])
                     ball_position_pt = util.get_xyz_from_neighbors(depth_intrinsics, depth_image, ball_position_unwarped)
@@ -255,25 +271,36 @@ def main(args, config_args):
                                 if is_entering_goal:
                                     send_data = True
                                     show_time = 0
-                                    ball_goal_pose = ball_current_pose
+
+                                    ball_refined_pose = util.refineBallPosition(ball_current_pose[0], ir_mask, 20)
+                                    if ball_refined_pose is not None:
+                                        ball_goal_pose = ball_refined_pose
+                                    else:
+                                        ball_goal_pose = ball_current_pose
                             else:
                                 ball_tracking_list.append(ball_current_pose)
                         else:
                             gl_dist = math.fabs(ball_current_pose[0][1] - ground_line_threshold_param)
-                            if len(ball_tracking_list) >= 2 and gl_dist < 10.0 and ball_speed < ball_hit_threshold_param:
+                            if len(ball_tracking_list) >= 2 and gl_dist < 10 and ball_speed < ball_hit_threshold_param:
                                 is_entering_goal = util.isEnteringGoal(ball_tracking_list, warp_color_image, warp_offset_param, 0)
                                 ball_tracking_list.clear()
 
                                 if is_entering_goal:
                                     send_data = True
                                     show_time = 0
-                                    ball_goal_pose = ball_current_pose
+                                    
+                                    ball_refined_pose = util.refineBallPosition(ball_current_pose[0], ir_mask, 20)
+                                    if ball_refined_pose is not None:
+                                        ball_goal_pose = ball_refined_pose
+                                    else:
+                                        ball_goal_pose = ball_current_pose
                             else:
                                 ball_tracking_list.append(ball_current_pose)
 
-                        # if ball_speed < ball_hit_threshold_param:
-                        #     ball_previous_pose = None
-                        #     ball_tracking_list.clear()
+                        bottom_dist = math.fabs(ball_current_pose[0][1] - warp_color_image.shape[0])
+                        if bottom_dist < 10:
+                            ball_previous_pose = None
+                            ball_tracking_list.clear()
 
                     ball_previous_pose = ball_current_pose
 
@@ -320,8 +347,8 @@ def main(args, config_args):
             cv2.imshow("Frame",  warp_color_image)
             #cv2.imshow("Warp Depth", warp_depth_image_8u)
             #cv2.imshow("Warp IR",  warp_ir_image)
-            #cv2.imshow("Foreground Mask", foreground_mask)
-            key = cv2.waitKey(1)
+            cv2.imshow("Foreground Mask", foreground_mask)
+            key = cv2.waitKey(0)
             
             # if pressed escape exit program
             if key == 27:

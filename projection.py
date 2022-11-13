@@ -47,10 +47,9 @@ def get_depth_warped(depth_frame):
 
     return warp_depth_image, depth_image
 
-def get_ir_warped(infrared_frame, clahe, size):
+def get_ir_warped(infrared_frame, size):
     ir_image = np.asanyarray(infrared_frame.get_data())
     ir_image  = cv2.resize(ir_image, (size[1],size[0]))
     warp_ir_image = warp(ir_image)
-    warp_ir_image = clahe.apply(warp_ir_image)
 
     return warp_ir_image, ir_image

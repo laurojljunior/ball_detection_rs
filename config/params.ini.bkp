@@ -13,7 +13,7 @@ TravelDistanceThreshold = 30
 
 #White
 MinLabColor = [75, 81, 125]
-MaxLabColor = [245, 255, 255]
+MaxLabColor = [255, 255, 255]
 
 #Orange
 #MinLabColor = [75, 150, 125]
